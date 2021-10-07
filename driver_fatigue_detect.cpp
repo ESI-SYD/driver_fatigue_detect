@@ -1,20 +1,22 @@
 /*
 * @File_name:  driver_fatigue_detect.cpp
 * @Description: 利用dlib&opencv进行眼口闭开和低头检测，实现疲劳判断
-* @Date:   2021-10-7 21:11:09
+* @Date:   2021-10-7 23:00:00
 * @Author: @Tongji
 */
 
-#include <dlib\opencv.h>
-#include <opencv2\opencv.hpp>
+//#include <opencv2\opencv.hpp>
 #include <dlib\image_processing\frontal_face_detector.h>
-#include <dlib\image_processing\render_face_detections.h>
 #include <dlib\image_processing.h>
-#include <dlib\gui_widgets.h>
+#include <dlib\opencv\cv_image_abstract.h>
+#include <dlib\pixel.h>
+#include <dlib\opencv\cv_image.h>
 #include <iostream>
-#include <vector>
-#include <cmath>
-#include <time.h>
+/*姿态估计头文件*/
+#include <opencv2\highgui.hpp>
+#include <opencv2\imgproc.hpp>
+#include <opencv2\calib3d.hpp>
+
 
 using namespace std;
 using namespace dlib;
@@ -51,56 +53,56 @@ int main()
 	double D[5] = { 7.0834633684407095e-002, 6.9140193737175351e-002, 0.0, 0.0, -1.3073460323689292e+000 };
 
 	//像素坐标系(xy)：填写凸轮的本征和畸变系数
-	cv::Mat cam_matrix = cv::Mat(3, 3, CV_64FC1, K);
-	cv::Mat dist_coeffs = cv::Mat(5, 1, CV_64FC1, D);
+	Mat cam_matrix = Mat(3, 3, CV_64FC1, K);
+	Mat dist_coeffs = Mat(5, 1, CV_64FC1, D);
 
 	//# 世界坐标系(UVW)：填写3D参考点--->14点
 
-	std::vector<cv::Point3d> object_pts;
-	object_pts.push_back(cv::Point3d(6.825897, 6.760612, 4.402142));     //#1 左眉左
-	object_pts.push_back(cv::Point3d(1.330353, 7.122144, 6.903745));     //#2 左眉右
-	object_pts.push_back(cv::Point3d(-1.330353, 7.122144, 6.903745));    //#3 右眉左
-	object_pts.push_back(cv::Point3d(-6.825897, 6.760612, 4.402142));    //#4 右眉右
-	object_pts.push_back(cv::Point3d(5.311432, 5.485328, 3.987654));     //#7 左眼左
-	object_pts.push_back(cv::Point3d(1.789930, 5.393625, 4.413414));     //#10 左眼右
-	object_pts.push_back(cv::Point3d(-1.789930, 5.393625, 4.413414));    //#13 右眼左
-	object_pts.push_back(cv::Point3d(-5.311432, 5.485328, 3.987654));    //#16 右眼右
-	object_pts.push_back(cv::Point3d(2.005628, 1.409845, 6.165652));     //#5 鼻左
-	object_pts.push_back(cv::Point3d(-2.005628, 1.409845, 6.165652));    //#6 鼻右
-	object_pts.push_back(cv::Point3d(2.774015, -2.080775, 5.048531));    //#19 嘴左
-	object_pts.push_back(cv::Point3d(-2.774015, -2.080775, 5.048531));   //#22 嘴右
-	object_pts.push_back(cv::Point3d(0.000000, -3.116408, 6.097667));    //#24 嘴下中间
-	object_pts.push_back(cv::Point3d(0.000000, -7.415691, 4.070434));    //#0 下巴
+	std::vector<Point3d> object_pts;
+	object_pts.push_back(Point3d(6.825897, 6.760612, 4.402142));     //#1 左眉左
+	object_pts.push_back(Point3d(1.330353, 7.122144, 6.903745));     //#2 左眉右
+	object_pts.push_back(Point3d(-1.330353, 7.122144, 6.903745));    //#3 右眉左
+	object_pts.push_back(Point3d(-6.825897, 6.760612, 4.402142));    //#4 右眉右
+	object_pts.push_back(Point3d(5.311432, 5.485328, 3.987654));     //#7 左眼左
+	object_pts.push_back(Point3d(1.789930, 5.393625, 4.413414));     //#10 左眼右
+	object_pts.push_back(Point3d(-1.789930, 5.393625, 4.413414));    //#13 右眼左
+	object_pts.push_back(Point3d(-5.311432, 5.485328, 3.987654));    //#16 右眼右
+	object_pts.push_back(Point3d(2.005628, 1.409845, 6.165652));     //#5 鼻左
+	object_pts.push_back(Point3d(-2.005628, 1.409845, 6.165652));    //#6 鼻右
+	object_pts.push_back(Point3d(2.774015, -2.080775, 5.048531));    //#19 嘴左
+	object_pts.push_back(Point3d(-2.774015, -2.080775, 5.048531));   //#22 嘴右
+	object_pts.push_back(Point3d(0.000000, -3.116408, 6.097667));    //#24 嘴下中间
+	object_pts.push_back(Point3d(0.000000, -7.415691, 4.070434));    //#0 下巴
 
 	//二维参考点（图像坐标），参考检测到的面部特征
-	std::vector<cv::Point2d> image_pts;
+	std::vector<Point2d> image_pts;
 
 	//result
-	cv::Mat rotation_vec;                           //3 x 1
-	cv::Mat rotation_mat;                           //3 x 3 R
-	cv::Mat translation_vec;                        //3 x 1 T
-	cv::Mat pose_mat = cv::Mat(3, 4, CV_64FC1);     //3 x 4 R | T
-	cv::Mat euler_angle = cv::Mat(3, 1, CV_64FC1); //欧拉角矩阵
+	Mat rotation_vec;                           //3 x 1
+	Mat rotation_mat;                           //3 x 3 R
+	Mat translation_vec;                        //3 x 1 T
+	Mat pose_mat = Mat(3, 4, CV_64FC1);     //3 x 4 R | T
+	Mat euler_angle = Mat(3, 1, CV_64FC1); //欧拉角矩阵
 
 	//重新投影3D点的世界坐标轴以验证结果姿势
 	std::vector<cv::Point3d> reprojectsrc;
-	reprojectsrc.push_back(cv::Point3d(10.0, 10.0, 10.0));
-	reprojectsrc.push_back(cv::Point3d(10.0, 10.0, -10.0));
-	reprojectsrc.push_back(cv::Point3d(10.0, -10.0, -10.0));
-	reprojectsrc.push_back(cv::Point3d(10.0, -10.0, 10.0));
-	reprojectsrc.push_back(cv::Point3d(-10.0, 10.0, 10.0));
-	reprojectsrc.push_back(cv::Point3d(-10.0, 10.0, -10.0));
-	reprojectsrc.push_back(cv::Point3d(-10.0, -10.0, -10.0));
-	reprojectsrc.push_back(cv::Point3d(-10.0, -10.0, 10.0));
+	reprojectsrc.push_back(Point3d(10.0, 10.0, 10.0));
+	reprojectsrc.push_back(Point3d(10.0, 10.0, -10.0));
+	reprojectsrc.push_back(Point3d(10.0, -10.0, -10.0));
+	reprojectsrc.push_back(Point3d(10.0, -10.0, 10.0));
+	reprojectsrc.push_back(Point3d(-10.0, 10.0, 10.0));
+	reprojectsrc.push_back(Point3d(-10.0, 10.0, -10.0));
+	reprojectsrc.push_back(Point3d(-10.0, -10.0, -10.0));
+	reprojectsrc.push_back(Point3d(-10.0, -10.0, 10.0));
 
 	//重新投影的 2D 点
 	std::vector<cv::Point2d> reprojectdst;
 	reprojectdst.resize(8);
 
 	//用于分解ProjectionMatrix()投影矩阵（）的临时缓冲区
-	cv::Mat out_intrinsics = cv::Mat(3, 3, CV_64FC1);
-	cv::Mat out_rotation = cv::Mat(3, 3, CV_64FC1);
-	cv::Mat out_translation = cv::Mat(3, 1, CV_64FC1);
+	Mat out_intrinsics = Mat(3, 3, CV_64FC1);
+	Mat out_rotation = Mat(3, 3, CV_64FC1);
+	Mat out_translation = Mat(3, 1, CV_64FC1);
 
 
 	/**********变量定义和初始化**********/
@@ -130,8 +132,6 @@ int main()
 			cap >> src;
 
 			t = (double)getTickCount();
-
-			clock_t flame_start = clock();
 
 			//将src转化为BGR
 			cv_image<bgr_pixel> img(src);
@@ -183,25 +183,24 @@ int main()
 					}
 
 					//填写二维参考点--->14点,有待优化
-					image_pts.push_back(cv::Point2d(shapes[0].part(1).x(), shapes[0].part(1).y())); //#1 左眉左
-					image_pts.push_back(cv::Point2d(shapes[0].part(2).x(), shapes[0].part(2).y())); //#2 左眉右
-					image_pts.push_back(cv::Point2d(shapes[0].part(3).x(), shapes[0].part(3).y())); //#3 右眉左
-					image_pts.push_back(cv::Point2d(shapes[0].part(4).x(), shapes[0].part(4).y())); //#4 右眉右
+					image_pts.push_back(Point2d(shapes[0].part(1).x(), shapes[0].part(1).y())); //#1 左眉左
+					image_pts.push_back(Point2d(shapes[0].part(2).x(), shapes[0].part(2).y())); //#2 左眉右
+					image_pts.push_back(Point2d(shapes[0].part(3).x(), shapes[0].part(3).y())); //#3 右眉左
+					image_pts.push_back(Point2d(shapes[0].part(4).x(), shapes[0].part(4).y())); //#4 右眉右
 
-					image_pts.push_back(cv::Point2d(shapes[0].part(7).x(), shapes[0].part(7).y())); //#7 左眼左
-					image_pts.push_back(cv::Point2d(shapes[0].part(10).x(), shapes[0].part(10).y())); //#10 左眼右
-					image_pts.push_back(cv::Point2d(shapes[0].part(13).x(), shapes[0].part(13).y())); //#13 右眼左
-					image_pts.push_back(cv::Point2d(shapes[0].part(16).x(), shapes[0].part(16).y())); //#16 右眼右
+					image_pts.push_back(Point2d(shapes[0].part(7).x(), shapes[0].part(7).y())); //#7 左眼左
+					image_pts.push_back(Point2d(shapes[0].part(10).x(), shapes[0].part(10).y())); //#10 左眼右
+					image_pts.push_back(Point2d(shapes[0].part(13).x(), shapes[0].part(13).y())); //#13 右眼左
+					image_pts.push_back(Point2d(shapes[0].part(16).x(), shapes[0].part(16).y())); //#16 右眼右
 
-					image_pts.push_back(cv::Point2d(shapes[0].part(5).x(), shapes[0].part(5).y())); //#5 鼻左
-					image_pts.push_back(cv::Point2d(shapes[0].part(6).x(), shapes[0].part(6).y())); //#6 鼻右
+					image_pts.push_back(Point2d(shapes[0].part(5).x(), shapes[0].part(5).y())); //#5 鼻左
+					image_pts.push_back(Point2d(shapes[0].part(6).x(), shapes[0].part(6).y())); //#6 鼻右
 
-					image_pts.push_back(cv::Point2d(shapes[0].part(19).x(), shapes[0].part(19).y())); //#19 嘴左
-					image_pts.push_back(cv::Point2d(shapes[0].part(22).x(), shapes[0].part(22).y())); //#22 嘴右
-					image_pts.push_back(cv::Point2d(shapes[0].part(24).x(), shapes[0].part(24).y())); //#24 嘴下中间
-					image_pts.push_back(cv::Point2d(shapes[0].part(0).x(), shapes[0].part(0).y()));   //#0 下巴
+					image_pts.push_back(Point2d(shapes[0].part(19).x(), shapes[0].part(19).y())); //#19 嘴左
+					image_pts.push_back(Point2d(shapes[0].part(22).x(), shapes[0].part(22).y())); //#22 嘴右
+					image_pts.push_back(Point2d(shapes[0].part(24).x(), shapes[0].part(24).y())); //#24 嘴下中间
+					image_pts.push_back(Point2d(shapes[0].part(0).x(), shapes[0].part(0).y()));   //#0 下巴
 
-					clock_t flame_end = clock();
 					/**********26特征点**********/
 
 					/**********眼口坐标*********/
@@ -292,15 +291,15 @@ int main()
 					/**********MAR*********/
 
 					//姿势计算：3D参考点+2D特征点
-					cv::solvePnP(object_pts, image_pts, cam_matrix, dist_coeffs, rotation_vec, translation_vec);
+					solvePnP(object_pts, image_pts, cam_matrix, dist_coeffs, rotation_vec, translation_vec);
 
 					//重新规划 
-					cv::projectPoints(reprojectsrc, rotation_vec, translation_vec, cam_matrix, dist_coeffs, reprojectdst);
+					projectPoints(reprojectsrc, rotation_vec, translation_vec, cam_matrix, dist_coeffs, reprojectdst);
 
 					//calc euler angle 角度计算
-					cv::Rodrigues(rotation_vec, rotation_mat);
-					cv::hconcat(rotation_mat, translation_vec, pose_mat);
-					cv::decomposeProjectionMatrix(pose_mat, out_intrinsics, out_rotation, out_translation, cv::noArray(), cv::noArray(), cv::noArray(), euler_angle);
+					Rodrigues(rotation_vec, rotation_mat);
+					hconcat(rotation_mat, translation_vec, pose_mat);
+					decomposeProjectionMatrix(pose_mat, out_intrinsics, out_rotation, out_translation, noArray(), noArray(), noArray(), euler_angle);
 
 					float HEAD_THRESH = 0.3;
 					double head = euler_angle.at<double>(0);
