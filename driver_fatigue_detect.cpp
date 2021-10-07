@@ -1,7 +1,7 @@
 /*
 * @File_name:  driver_fatigue_detect.cpp
 * @Description: 利用dlib&opencv进行眼口闭开和低头检测，实现疲劳判断
-* @Date:   2021-10-7 16:23:31
+* @Date:   2021-10-7 21:11:09
 * @Author: @Tongji
 */
 
@@ -32,7 +32,7 @@ int main()
 	float blink_EAR_now = 0.2;			//眨眼中
 	float blink_EAR_after = 0.0;		//眨眼后
 
-	//闭眼最大时长：EAR<0.2的持续时间，待更新
+	//闭眼最大时长：EAR<0.2的持续时间
 	unsigned int eye_close_duration = 1;  //闭眼时长
 	unsigned int real_yawn = 1;  //张嘴时长 done!
 	unsigned int detect_no_face_duration = 1; //未见人脸时长 done!
@@ -43,7 +43,7 @@ int main()
 	//低头检测
 	unsigned int nod_cnt = 0; //点头计数
 	unsigned int nod_total = 0; //瞌睡点头
-	int head_thresh = 8; //低头欧拉角（head）阈值.自定义
+	int head_thresh = 8; //低头欧拉角（head）阈值
 	
 	//相机坐标系
 	double K[9] = { 6.5308391993466671e+002, 0.0, 3.1950000000000000e+002, 0.0, 6.5308391993466671e+002,2.3950000000000000e+002, 0.0, 0.0, 1.0 };
@@ -121,10 +121,15 @@ int main()
 			return 1;
 		}
 
-		while (waitKey(60) != 27)//30ms用户未按下ESC键
+		double fps;
+		double t = 0;
+
+		while (waitKey(30) != 27)//30ms用户未按下ESC键,与帧率有关
 		{
 			Mat src;
 			cap >> src;
+
+			t = (double)getTickCount();
 
 			clock_t flame_start = clock();
 
@@ -380,6 +385,12 @@ int main()
 
 			}
 			/**********检测到人脸**********/
+
+			/*视频帧率显示*/
+			t = ((double)getTickCount() - t) / getTickFrequency();
+			fps = 1.0 / t;
+			putText(src, "FPS: "+to_string(fps), cvPoint(5, 20), FONT_HERSHEY_PLAIN, 0.8, Scalar(0, 255, 0));
+			/*视频帧率显示*/
 
 			//视频流显示
 			cv::imshow("驾驶疲劳检测中...", src);
