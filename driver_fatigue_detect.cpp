@@ -1,8 +1,8 @@
 /*
 * @File_name:  driver_fatigue_detect.cpp
-* @Description: 利用dlib&opencv开源视觉库进行眼口闭开检测，实现疲劳判断
-* @Date:   2021-9-11 14:57:01
-* @Author: SYD@TongJI
+* @Description: 利用dlib&opencv进行眼口闭开和低头检测，实现疲劳判断
+* @Date:   2021-10-7 16:23:31
+* @Author: @Tongji
 */
 
 #include <dlib\opencv.h>
@@ -23,7 +23,7 @@ using namespace cv;
 int main()
 {
 	/**********变量定义和初始化**********/
-	unsigned int blink_cnt = 0;			//眨眼计数
+	unsigned int blink_cnt = 0;			   //眨眼计数
 	unsigned int open_mou_cnt = 0;         //张嘴计数
 	unsigned int close_eye_cnt = 0;        //闭眼计数
 
@@ -33,20 +33,84 @@ int main()
 	float blink_EAR_after = 0.0;		//眨眼后
 
 	//闭眼最大时长：EAR<0.2的持续时间，待更新
-	unsigned int eye_close_duration = 0;  //闭眼时长
-	unsigned int real_yawn = 1;  //张嘴时长
+	unsigned int eye_close_duration = 1;  //闭眼时长
+	unsigned int real_yawn = 1;  //张嘴时长 done!
 	unsigned int detect_no_face_duration = 1; //未见人脸时长 done!
 
 	//张嘴：MAR>0.5
 	float MAR_THRESH = 0.5;
+
+	//低头检测
+	unsigned int nod_cnt = 0; //点头计数
+	unsigned int nod_total = 0; //瞌睡点头
+	int head_thresh = 8; //低头欧拉角（head）阈值.自定义
+	
+	//相机坐标系
+	double K[9] = { 6.5308391993466671e+002, 0.0, 3.1950000000000000e+002, 0.0, 6.5308391993466671e+002,2.3950000000000000e+002, 0.0, 0.0, 1.0 };
+	//图像中心坐标系
+	double D[5] = { 7.0834633684407095e-002, 6.9140193737175351e-002, 0.0, 0.0, -1.3073460323689292e+000 };
+
+	//像素坐标系(xy)：填写凸轮的本征和畸变系数
+	cv::Mat cam_matrix = cv::Mat(3, 3, CV_64FC1, K);
+	cv::Mat dist_coeffs = cv::Mat(5, 1, CV_64FC1, D);
+
+	//# 世界坐标系(UVW)：填写3D参考点--->14点
+
+	std::vector<cv::Point3d> object_pts;
+	object_pts.push_back(cv::Point3d(6.825897, 6.760612, 4.402142));     //#1 左眉左
+	object_pts.push_back(cv::Point3d(1.330353, 7.122144, 6.903745));     //#2 左眉右
+	object_pts.push_back(cv::Point3d(-1.330353, 7.122144, 6.903745));    //#3 右眉左
+	object_pts.push_back(cv::Point3d(-6.825897, 6.760612, 4.402142));    //#4 右眉右
+	object_pts.push_back(cv::Point3d(5.311432, 5.485328, 3.987654));     //#7 左眼左
+	object_pts.push_back(cv::Point3d(1.789930, 5.393625, 4.413414));     //#10 左眼右
+	object_pts.push_back(cv::Point3d(-1.789930, 5.393625, 4.413414));    //#13 右眼左
+	object_pts.push_back(cv::Point3d(-5.311432, 5.485328, 3.987654));    //#16 右眼右
+	object_pts.push_back(cv::Point3d(2.005628, 1.409845, 6.165652));     //#5 鼻左
+	object_pts.push_back(cv::Point3d(-2.005628, 1.409845, 6.165652));    //#6 鼻右
+	object_pts.push_back(cv::Point3d(2.774015, -2.080775, 5.048531));    //#19 嘴左
+	object_pts.push_back(cv::Point3d(-2.774015, -2.080775, 5.048531));   //#22 嘴右
+	object_pts.push_back(cv::Point3d(0.000000, -3.116408, 6.097667));    //#24 嘴下中间
+	object_pts.push_back(cv::Point3d(0.000000, -7.415691, 4.070434));    //#0 下巴
+
+	//二维参考点（图像坐标），参考检测到的面部特征
+	std::vector<cv::Point2d> image_pts;
+
+	//result
+	cv::Mat rotation_vec;                           //3 x 1
+	cv::Mat rotation_mat;                           //3 x 3 R
+	cv::Mat translation_vec;                        //3 x 1 T
+	cv::Mat pose_mat = cv::Mat(3, 4, CV_64FC1);     //3 x 4 R | T
+	cv::Mat euler_angle = cv::Mat(3, 1, CV_64FC1); //欧拉角矩阵
+
+	//重新投影3D点的世界坐标轴以验证结果姿势
+	std::vector<cv::Point3d> reprojectsrc;
+	reprojectsrc.push_back(cv::Point3d(10.0, 10.0, 10.0));
+	reprojectsrc.push_back(cv::Point3d(10.0, 10.0, -10.0));
+	reprojectsrc.push_back(cv::Point3d(10.0, -10.0, -10.0));
+	reprojectsrc.push_back(cv::Point3d(10.0, -10.0, 10.0));
+	reprojectsrc.push_back(cv::Point3d(-10.0, 10.0, 10.0));
+	reprojectsrc.push_back(cv::Point3d(-10.0, 10.0, -10.0));
+	reprojectsrc.push_back(cv::Point3d(-10.0, -10.0, -10.0));
+	reprojectsrc.push_back(cv::Point3d(-10.0, -10.0, 10.0));
+
+	//重新投影的 2D 点
+	std::vector<cv::Point2d> reprojectdst;
+	reprojectdst.resize(8);
+
+	//用于分解ProjectionMatrix()投影矩阵（）的临时缓冲区
+	cv::Mat out_intrinsics = cv::Mat(3, 3, CV_64FC1);
+	cv::Mat out_rotation = cv::Mat(3, 3, CV_64FC1);
+	cv::Mat out_translation = cv::Mat(3, 1, CV_64FC1);
+
+
 	/**********变量定义和初始化**********/
 
 
-	/**********载入dlib face_landmark预测模型（18点）**********/
+	/**********载入dlib face_landmark预测模型（26点）**********/
 	frontal_face_detector face_detector = get_frontal_face_detector();
-	shape_predictor pre_modle_18;
-	deserialize("E:\\Fatigue\\driver_fatigue_detect\\driver_fatigue_detect\\18_predictor.dat") >> pre_modle_18;
-	/**********载入dlib face_landmark预测模型（18点）**********/
+	shape_predictor pre_model_26;
+	deserialize("E:\\Fatigue\\driver_fatigue_detect\\driver_fatigue_detect\\26_predictor.dat") >> pre_model_26;
+	/**********载入dlib face_landmark预测模型（26点）**********/
 
 	try 
 	{
@@ -57,7 +121,7 @@ int main()
 			return 1;
 		}
 
-		while (waitKey(30) != 27)//30ms用户未按下ESC键
+		while (waitKey(60) != 27)//30ms用户未按下ESC键
 		{
 			Mat src;
 			cap >> src;
@@ -97,50 +161,46 @@ int main()
 				detect_no_face_duration = 0;
 				for (unsigned int i = 0; i < faceNumber; ++i)
 				{
-					shapes.emplace_back(pre_modle_18(img, faces[i]));
+					shapes.emplace_back(pre_model_26(img, faces[i]));
 				}
 				
 				if (!shapes.empty())
 				{
-					/**********18特征点**********/
+					/**********26特征点**********/
 					int faceNumber = shapes.size();
 					for (int j = 0; j < faceNumber; j++)
 					{
-						for (int i = 0; i < 18; i++)
+						for (int i = 0; i < 26; i++)
 						{
-							//画18特征点
-							cv::circle(src, cvPoint(shapes[j].part(i).x(), shapes[j].part(i).y()), 0.5, cv::Scalar(255, 255, 0), -1);
-							cv::putText(src, to_string(i), cvPoint(shapes[0].part(i).x(), shapes[0].part(i).y()), cv::FONT_HERSHEY_PLAIN, 1, cv::Scalar(255, 255, 0));
+							//cv::circle(src, cvPoint(shapes[j].part(i).x(), shapes[j].part(i).y()), 0.5, cv::Scalar(255, 0, 0), -1);
+							cv::putText(src, to_string(i), cvPoint(shapes[0].part(i).x(), shapes[0].part(i).y()), cv::FONT_HERSHEY_PLAIN, 0.8, cv::Scalar(0, 255, 0));
 						}
 					}
 
+					//填写二维参考点--->14点,有待优化
+					image_pts.push_back(cv::Point2d(shapes[0].part(1).x(), shapes[0].part(1).y())); //#1 左眉左
+					image_pts.push_back(cv::Point2d(shapes[0].part(2).x(), shapes[0].part(2).y())); //#2 左眉右
+					image_pts.push_back(cv::Point2d(shapes[0].part(3).x(), shapes[0].part(3).y())); //#3 右眉左
+					image_pts.push_back(cv::Point2d(shapes[0].part(4).x(), shapes[0].part(4).y())); //#4 右眉右
+
+					image_pts.push_back(cv::Point2d(shapes[0].part(7).x(), shapes[0].part(7).y())); //#7 左眼左
+					image_pts.push_back(cv::Point2d(shapes[0].part(10).x(), shapes[0].part(10).y())); //#10 左眼右
+					image_pts.push_back(cv::Point2d(shapes[0].part(13).x(), shapes[0].part(13).y())); //#13 右眼左
+					image_pts.push_back(cv::Point2d(shapes[0].part(16).x(), shapes[0].part(16).y())); //#16 右眼右
+
+					image_pts.push_back(cv::Point2d(shapes[0].part(5).x(), shapes[0].part(5).y())); //#5 鼻左
+					image_pts.push_back(cv::Point2d(shapes[0].part(6).x(), shapes[0].part(6).y())); //#6 鼻右
+
+					image_pts.push_back(cv::Point2d(shapes[0].part(19).x(), shapes[0].part(19).y())); //#19 嘴左
+					image_pts.push_back(cv::Point2d(shapes[0].part(22).x(), shapes[0].part(22).y())); //#22 嘴右
+					image_pts.push_back(cv::Point2d(shapes[0].part(24).x(), shapes[0].part(24).y())); //#24 嘴下中间
+					image_pts.push_back(cv::Point2d(shapes[0].part(0).x(), shapes[0].part(0).y()));   //#0 下巴
+
 					clock_t flame_end = clock();
-					/**********18特征点**********/
+					/**********26特征点**********/
 
 					/**********眼口坐标*********/
 					//左眼坐标：6点
-					unsigned int x_0 = shapes[0].part(0).x();
-					unsigned int y_0 = shapes[0].part(0).y();
-
-					unsigned int x_1 = shapes[0].part(1).x();
-					unsigned int y_1 = shapes[0].part(1).y();
-
-					unsigned int x_2 = shapes[0].part(2).x();
-					unsigned int y_2 = shapes[0].part(2).y();
-
-					unsigned int x_3 = shapes[0].part(3).x();
-					unsigned int y_3 = shapes[0].part(3).y();
-
-					unsigned int x_4 = shapes[0].part(4).x();
-					unsigned int y_4 = shapes[0].part(4).y();
-
-					unsigned int x_5 = shapes[0].part(5).x();
-					unsigned int y_5 = shapes[0].part(5).y();
-
-					//右眼坐标：6点
-					unsigned int x_6 = shapes[0].part(6).x();
-					unsigned int y_6 = shapes[0].part(6).y();
-
 					unsigned int x_7 = shapes[0].part(7).x();
 					unsigned int y_7 = shapes[0].part(7).y();
 
@@ -156,29 +216,51 @@ int main()
 					unsigned int x_11 = shapes[0].part(11).x();
 					unsigned int y_11 = shapes[0].part(11).y();
 
-					//嘴巴坐标:6点
 					unsigned int x_12 = shapes[0].part(12).x();
 					unsigned int y_12 = shapes[0].part(12).y();
 
-					unsigned int x_15 = shapes[0].part(15).x();
-					unsigned int y_15 = shapes[0].part(15).y();
-
+					//右眼坐标：6点
 					unsigned int x_13 = shapes[0].part(13).x();
 					unsigned int y_13 = shapes[0].part(13).y();
-
-					unsigned int x_17 = shapes[0].part(17).x();
-					unsigned int y_17 = shapes[0].part(17).y();
 
 					unsigned int x_14 = shapes[0].part(14).x();
 					unsigned int y_14 = shapes[0].part(14).y();
 
+					unsigned int x_15 = shapes[0].part(15).x();
+					unsigned int y_15 = shapes[0].part(15).y();
+
 					unsigned int x_16 = shapes[0].part(16).x();
 					unsigned int y_16 = shapes[0].part(16).y();
+
+					unsigned int x_17 = shapes[0].part(17).x();
+					unsigned int y_17 = shapes[0].part(17).y();
+
+					unsigned int x_18 = shapes[0].part(18).x();
+					unsigned int y_18 = shapes[0].part(18).y();
+
+					//嘴巴坐标:6点
+					unsigned int x_19 = shapes[0].part(19).x();
+					unsigned int y_19 = shapes[0].part(19).y();
+
+					unsigned int x_22 = shapes[0].part(22).x();
+					unsigned int y_22 = shapes[0].part(22).y();
+
+					unsigned int x_20 = shapes[0].part(20).x();
+					unsigned int y_20 = shapes[0].part(20).y();
+
+					unsigned int x_25 = shapes[0].part(25).x();
+					unsigned int y_25 = shapes[0].part(25).y();
+
+					unsigned int x_21 = shapes[0].part(21).x();
+					unsigned int y_21 = shapes[0].part(21).y();
+
+					unsigned int x_23 = shapes[0].part(23).x();
+					unsigned int y_23 = shapes[0].part(23).y();
 					/**********眼口坐标*********/
 
 					/**********EAR*********/
-					float height_left_eye = (y_4 - y_2 + y_5 - y_1) / 2;		//左眼纵高
-					unsigned int length_left_eye = x_3 - x_0;   //左眼横宽
+					float height_left_eye = (y_11 - y_9 + y_12 - y_8) / 2;		//左眼纵高
+					unsigned int length_left_eye = x_10 - x_7;   //左眼横宽
 
 
 					if (height_left_eye == 0)  //当眼睛闭合的时候，纵高为0，此时重新赋值为1
@@ -186,8 +268,8 @@ int main()
 					float EAR_left_eye;			//左眼宽高比
 					EAR_left_eye = height_left_eye / length_left_eye;
 
-					float height_right_eye = (y_10 - y_8 + y_11 - y_7) / 2;		//右眼纵高
-					unsigned int length_right_eye = x_9 - x_6;     //右眼横宽
+					float height_right_eye = (y_17 - y_15 + y_18 - y_14) / 2;		//右眼纵高
+					unsigned int length_right_eye = x_16 - x_13;     //右眼横宽
 					if (height_right_eye == 0)  //当眼睛闭合的时候，纵高为0，此时重新赋值为1
 						height_right_eye = 1;
 					float EAR_right_eye;			//右眼宽高比
@@ -198,12 +280,56 @@ int main()
 					/**********EAR*********/
 
 					/**********MAR*********/
-					unsigned int lenght_mouth = x_15 - x_12;			//嘴巴横宽
-					float height_mouth = (y_17 - y_13 + y_16 - y_14) / 2;//嘴巴纵高
+					unsigned int lenght_mouth = x_22 - x_19;			//嘴巴横宽
+					float height_mouth = (y_25 - y_20 + y_23 - y_21) / 2;//嘴巴纵高
 					
 					MAR_mouth = height_mouth / lenght_mouth;//嘴巴的宽高比
 					/**********MAR*********/
 
+					//姿势计算：3D参考点+2D特征点
+					cv::solvePnP(object_pts, image_pts, cam_matrix, dist_coeffs, rotation_vec, translation_vec);
+
+					//重新规划 
+					cv::projectPoints(reprojectsrc, rotation_vec, translation_vec, cam_matrix, dist_coeffs, reprojectdst);
+
+					//calc euler angle 角度计算
+					cv::Rodrigues(rotation_vec, rotation_mat);
+					cv::hconcat(rotation_mat, translation_vec, pose_mat);
+					cv::decomposeProjectionMatrix(pose_mat, out_intrinsics, out_rotation, out_translation, cv::noArray(), cv::noArray(), cv::noArray(), euler_angle);
+
+					float HEAD_THRESH = 0.3;
+					double head = euler_angle.at<double>(0);
+
+					/**********低头检测(辅助)**********/
+					if (head > head_thresh)
+					{
+						nod_cnt += 1;
+					}
+					else //如果连续3次都小于阈值，则表示瞌睡点头一次
+					{
+						if (nod_cnt >= 3)
+						{
+							nod_total += 1;
+							nod_cnt = 0;
+							if (nod_total > 10)
+							{
+								cout << "检测到多次低头行为，您已疲劳，请休息！" << endl;
+								nod_total = 0;
+							}
+						}
+					}
+
+					char nod_total_text[30];
+					_gcvt_s(nod_total_text, nod_total, 10);
+					cout << "低头次数：" << nod_total_text << endl<<endl;
+
+					//char head_text[30];
+					//_gcvt_s(head_text, head, 10);
+					//cout << "heading角:" << head_text << endl<<endl;
+
+					image_pts.clear();
+
+					/**********低头检测(辅助)**********/
 
 
 					//张嘴计数
@@ -243,10 +369,10 @@ int main()
 					_gcvt_s(MAR_mouth_text, MAR_mouth, 10);
 					_gcvt_s(open_mou_cnt_text, open_mou_cnt, 10);
 
-					cout << "EAR： " << EAR_eyes_text << endl << endl;
-					cout << "MAR： " << MAR_mouth_text << endl << endl;
-					cout << "眨眼计数： " << blink_cnt_text << endl << endl;
-					cout << "张嘴计数： " << open_mou_cnt_text << endl << endl;
+					//cout << "EAR： " << EAR_eyes_text << endl << endl;
+					//cout << "MAR： " << MAR_mouth_text << endl << endl;
+					cout << "当前闭眼过程眨眼计数： " << blink_cnt_text << endl << endl;
+					cout << "当前哈欠过程张嘴计数： " << open_mou_cnt_text << endl << endl;
 
 					//cv::putText(src, string("FPS: ") + to_string(1 / (flame_end - flame_start)), Point(10, 350), FONT_HERSHEY_COMPLEX, 1.0, Scalar(255, 255, 0), 1, LINE_AA);
 
@@ -265,7 +391,7 @@ int main()
 			double consumeTime = (double)(finish - start);
 
 
-			/**********哈欠行为警告**********/
+			///**********哈欠行为警告**********/
 			if ((open_mou_cnt / consumeTime) > 60)//张嘴频率大于60次/秒视为一次哈欠，数字待考证
 			{
 				    
@@ -273,34 +399,57 @@ int main()
 					{
 						open_mou_cnt = 0;
 						real_yawn++;
+						if (real_yawn > 8)
+						{
+							cout << "检测到多次哈欠行为，您已疲劳，请休息！" << endl;
+							//for (int i = 0; i < 3; i++) {
+							//	cout << '\a' << endl;
+							//	Sleep(500);
+							//}
+							real_yawn = 0;
+						}
 					}
 					else
 					{
 						open_mou_cnt++;
 						cout << "检测到哈欠行为，当前哈欠次数：" << real_yawn << endl;
+
 					}
 			}
 			/**********哈欠行为警告**********/
-			
-			//持续闭眼警告，有较大瑕疵，待修复...
-			if ((close_eye_cnt / consumeTime) > 60000)//眨眼频率大于60次/秒视为一次闭眼，数字待考证
+
+			/**********闭眼行为警告**********/
+			if ((blink_cnt/ consumeTime) >60)//眨眼频率大于次60/秒视为一次闭眼过程，数字待考证
 			{
-				if (EAR_eyes > 0.25)//睁眼时刻
+				if (EAR_eyes > 0.18)//睁眼时刻
 				{
-					close_eye_cnt = 0;
+					blink_cnt = 0;
 					eye_close_duration++;
-					EAR_eyes = 0;//归零防闭眼误判断
+					if (eye_close_duration > 8)
+					{
+						cout << "检测到多次闭眼行为，您已疲劳，请休息！" << endl;
+						//for (int i = 0; i < 3; i++) {
+						//	cout << '\a' << endl; 
+						//	Sleep(500);
+						//}
+						eye_close_duration = 0;
+					}
 				}
 				else
 				{
-					close_eye_cnt++;
-					cout << "检测到闭眼行为，当前闭眼次数：" << eye_close_duration << endl;
+					blink_cnt++;
+					if (blink_cnt > 15)
+					{
+						cout << "检测到闭眼行为，当前闭眼次数：" << eye_close_duration << endl;
+					}
 				}
 			}
+			///**********闭眼行为警告**********/
 
 		}
 
 	}
+
 	catch (serialization_error& e)
 	{
 		cout << "dlib 预测模型未成功加载..." << endl;
