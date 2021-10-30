@@ -72,17 +72,21 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
+    <IncludePath>E:\DFD\dlib-19.22\install\include;E:\DFD\CV\opencv\build\include\opencv2;E:\DFD\CV\opencv\build\include;$(IncludePath)</IncludePath>
+    <LibraryPath>E:\DFD\dlib-19.22\install\lib;E:\DFD\CV\opencv\build\x64\vc15\lib;C:\Users\KSLDM\Downloads\Compressed\USB2XXX_Example\sdk\libs\windows\x86_64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <IncludePath>E:\DFD\dlib-19.22\install\include;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\Users\KSLDM\Downloads\Compressed\USB2XXX_Example\sdk\libs\windows\x86_64;E:\DFD\dlib-19.22\install\lib;E:\DFD\CV\opencv\build\x64\vc15\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <IncludePath>E:\DFD\CV\opencv\build\include;E:\DFD\CV\opencv\build\include\opencv2;E:\DFD\dlib-19.22\install\include;$(IncludePath)</IncludePath>
-    <LibraryPath>E:\DFD\CV\opencv\build\x64\vc15\lib;E:\DFD\dlib-19.22\install\lib;$(LibraryPath)</LibraryPath>
+    <LibraryPath>C:\Users\KSLDM\Downloads\Compressed\USB2XXX_Example\sdk\libs\windows\x86_64;E:\DFD\CV\opencv\build\x64\vc15\lib;E:\DFD\dlib-19.22\install\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -94,6 +98,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>opencv_world451d.lib;dlib19.22.0_debug_64bit_msvc1929.lib;USB2XXX.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -122,6 +127,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>opencv_world451d.lib;dlib19.22.0_debug_64bit_msvc1929.lib;USB2XXX.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -138,11 +144,15 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>dlib19.22.0_release_64bit_msvc1928.lib;opencv_world451.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dlib19.22.0_release_64bit_msvc1928.lib;opencv_world451.lib;USB2XXX.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="driver_fatigue_detect.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="usb2lin_ex.h" />
+    <ClInclude Include="usb_device.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,8 +1,7 @@
 /*
 * @File_name:  driver_fatigue_detect.cpp
-* @Description: 利用dlib&opencv进行眼口闭开和低头检测，实现疲劳判断
-* @Date:   2021-10-30 16:21:35
-* @Author: @Tongji
+* @Date:   2021-12-18 14:30:12
+* @Author: ESI_SYD@Tongji
 */
 
 #include <dlib\image_processing\frontal_face_detector.h>
@@ -14,10 +13,51 @@
 #include <opencv2\highgui.hpp>
 #include <opencv2\imgproc.hpp>
 #include <opencv2\calib3d.hpp>
+#include <opencv2\opencv.hpp>
+#include <string>
+#include <dlib/svm_threaded.h>
+
+#include "usb_device.h"
+#include "usb2lin_ex.h"
 
 using namespace std;
 using namespace dlib;
 using namespace cv;
+
+
+#pragma region RGB_LIGHT
+void rgb_light(int& DevHandle,int times)
+{
+	LIN_EX_MSG LINMsg;
+	LINMsg.MsgType = LIN_EX_MSG_TYPE_MW;//主机写数据模式
+	/*红灯*/
+	LINMsg.Data[0] = 0x01;
+	LINMsg.Data[1] = 0x00;
+	LINMsg.Data[2] = 0xFF;//R
+	LINMsg.Data[3] = 0x00;//G
+	LINMsg.Data[4] = 0x00;//B
+	LINMsg.Data[5] = 0x64;
+	LINMsg.Data[6] = 0x00;
+	LINMsg.Data[7] = 0x02;
+	while (times--)
+	{
+		LIN_EX_MasterWrite(DevHandle, 0, 0x15, LINMsg.Data, 8, 1);//发送，DevHandle[0]为USB设备0的设备序号的低4字节数据
+		LINMsg.Timestamp = 10;//发送该帧数据之后的延时时间，最小建议设置为1
+		LINMsg.CheckType = LIN_EX_CHECK_EXT;//设置好校验类型后，适配器会根据校验类型自动计算校验数据
+		LINMsg.PID = 0x15;//PID固定为0x15
+	}
+	/*熄灯*/
+	LINMsg.Data[0] = 0x01;
+	LINMsg.Data[1] = 0x00;
+	LINMsg.Data[2] = 0x00;//R
+	LINMsg.Data[3] = 0x00;//G
+	LINMsg.Data[4] = 0x00;//B
+	LINMsg.Data[5] = 0x00;
+	LINMsg.Data[6] = 0x00;
+	LINMsg.Data[7] = 0x02;
+	LIN_EX_MasterWrite(DevHandle, 0, 0x15, LINMsg.Data, 8, 1);
+}
+#pragma endregion
 
 int main()
 {
@@ -103,19 +143,61 @@ int main()
 	Mat out_rotation = Mat(3, 3, CV_64FC1);
 	Mat out_translation = Mat(3, 1, CV_64FC1);
 
+
+	DEVICE_INFO DevInfo;
+	int DevHandle[10];
+	int LINMasterIndex = 0;
+	int LINSlaveIndex = 0;
+	int DevIndex = 0;
+	bool state;
+	int ret;
+
+#pragma endregion
+
+#pragma region USB2LIN_INIT
+	//扫描USB设备
+	ret = USB_ScanDevice(DevHandle);
+	if (ret <= 0) {
+		printf("No device connected!\n");
+		return 0;
+	}
+
+	//打开USB设备
+	state = USB_OpenDevice(DevHandle[DevIndex]);
+	if (!state) {
+		printf("Open device error!\n");
+		return 0;
+	}
+
+	//初始化配置LIN
+	ret = LIN_EX_Init(DevHandle[DevIndex], LINMasterIndex, 19200, 1);
+	if (ret != LIN_EX_SUCCESS) {
+		printf("Config LIN failed!\n");
+		return 0;
+	}
+	else
+	{
+		printf("Config LIN Success!\n");
+	}
 #pragma endregion
 
 #pragma region DLIB_MODEL_INIT
-	frontal_face_detector face_detector = get_frontal_face_detector();
+	frontal_face_detector face_detector = get_frontal_face_detector();//官方HOG+SVM 正脸检测器
+
+	//frontal_face_detector face_detector;
+	//deserialize("E:\\Fatigue\\driver_fatigue_detect\\driver_fatigue_detect\\esi_face_detector_final.svm") >> face_detector;
+
 	shape_predictor pre_model_26;
 	deserialize("E:\\Fatigue\\driver_fatigue_detect\\driver_fatigue_detect\\26_predictor.dat") >> pre_model_26;
+	//med::load_shape_predictor_model(pre_model_26, "E:\\Fatigue\\driver_fatigue_detect\\driver_fatigue_detect\\26_predictor_compression.dat");
+
 #pragma endregion
 
-#pragma region START_DETECT
 
 	try
 	{
 		VideoCapture cap(0);
+		//VideoCapture cap("E:\\DFD\\dataset\\1\\YawDD dataset\\Dash\\Male\\test.avi");
 		if (!cap.isOpened())
 		{
 			cout << "未打开摄像头" << endl;
@@ -123,16 +205,19 @@ int main()
 		}
 		double fps;
 		double t = 0;
-		while (waitKey(30) != 27)
+		while(waitKey(30)!=27)
 		{
 			Mat src;
 			cap >> src;
-
 			t = (double)getTickCount();
 
-			cv_image<bgr_pixel> img(src);
-			std::vector<dlib::rectangle> faces = face_detector(img);
+			cv_image<bgr_pixel> img(src);//HOG+SVM
+			//cv_image<rgb_pixel> img(src);//DNN
+
+			std::vector<dlib::rectangle> faces = face_detector(img);//HOG+SVM
+
 			std::vector<full_object_detection> shapes;
+
 			unsigned int faceNumber = faces.size();
 
 			float MAR_mouth;
@@ -144,12 +229,14 @@ int main()
 				if (detect_no_face_duration != 100)
 				{
 					cout << "未检测到人脸!!\t" << "time: " << detect_no_face_duration++ << endl;
+					rgb_light(DevHandle[0], 3);//3次红灯
 
 				}
 				else
 				{
 					cout << "较长时间未检测到人脸，判定疲劳！" << endl;
 					detect_no_face_duration = 1;
+					rgb_light(DevHandle[0], 3);//3次红灯
 				}
 			}
             #pragma endregion
@@ -163,6 +250,11 @@ int main()
 					shapes.emplace_back(pre_model_26(img, faces[i]));
 				}
 
+				//for (auto&& face:faces)
+				//{
+				//	shapes.emplace_back(pre_model_26(img, face));
+				//}
+
 				if (!shapes.empty())
 				{
                     #pragma region 26_FACE_LANDMARK
@@ -171,8 +263,7 @@ int main()
 					{
 						for (int i = 0; i < 26; i++)
 						{
-							//cv::circle(src, cvPoint(shapes[j].part(i).x(), shapes[j].part(i).y()), 0.5, cv::Scalar(255, 0, 0), -1);
-							cv::putText(src, to_string(i), cvPoint(shapes[0].part(i).x(), shapes[0].part(i).y()), cv::FONT_HERSHEY_PLAIN, 0.8, cv::Scalar(0, 255, 0));
+							cv::putText(src, to_string(i), cvPoint(shapes[0].part(i).x(), shapes[0].part(i).y()), cv::FONT_HERSHEY_PLAIN, 0.3, cv::Scalar(0, 255, 0));
 						}
 					}
                     #pragma endregion
@@ -298,11 +389,12 @@ int main()
                     #pragma endregion
 
                     #pragma region HEAD_DOWN_DETECT
-					float HEAD_THRESH = 0.3;
+					float HEAD_THRESH = 0.5;
 					double head = euler_angle.at<double>(0);
 					if (head > head_thresh)
 					{
 						nod_cnt += 1;
+						rgb_light(DevHandle[0], 1);//1次红灯
 					}
 					else //如果连续3次都小于阈值，则表示瞌睡点头一次
 					{
@@ -313,7 +405,9 @@ int main()
 							if (nod_total > 10)
 							{
 								cout << "检测到多次低头行为，您已疲劳，请休息！" << endl;
+								rgb_light(DevHandle[0], 3);//3次红灯
 								nod_total = 0;
+								
 							}
 						}
 					}
@@ -321,10 +415,10 @@ int main()
 					char nod_total_text[30];
 					_gcvt_s(nod_total_text, nod_total, 10);
 					cout << "低头次数：" << nod_total_text << endl << endl;
-
 					image_pts.clear();
-                    #pragma endregion
 
+                    #pragma endregion
+					
                     #pragma region COUNT_PART
 					//张嘴计数
 					if (MAR_mouth > MAR_THRESH)//阈值0.5
@@ -373,7 +467,7 @@ int main()
             #pragma region show_real_img_with_fps
 			t = ((double)getTickCount() - t) / getTickFrequency();
 			fps = 1.0 / t;
-			putText(src, "FPS: " + to_string(fps), cvPoint(5, 20), FONT_HERSHEY_PLAIN, 0.8, Scalar(0, 255, 0));
+			cv::putText(src, "FPS: " + to_string(fps), cvPoint(5, 20), FONT_HERSHEY_PLAIN, 0.8, Scalar(0, 255, 0));
 			cv::imshow("驾驶疲劳检测中...", src);
             #pragma endregion
 
@@ -392,10 +486,7 @@ int main()
 					if (real_yawn > 8)
 					{
 						cout << "检测到多次哈欠行为，您已疲劳，请休息！" << endl;
-						//for (int i = 0; i < 3; i++) {
-						//	cout << '\a' << endl;
-						//	Sleep(500);
-						//}
+						rgb_light(DevHandle[0], 3);//3次红灯
 						real_yawn = 0;
 					}
 				}
@@ -403,6 +494,7 @@ int main()
 				{
 					open_mou_cnt++;
 					cout << "检测到哈欠行为，当前哈欠次数：" << real_yawn << endl;
+					rgb_light(DevHandle[0], 1);//1次红灯
 
 				}
 			}
@@ -418,6 +510,7 @@ int main()
 					if (eye_close_duration > 8)
 					{
 						cout << "检测到多次闭眼行为，您已疲劳，请休息！" << endl;
+						rgb_light(DevHandle[0], 3);//3次红灯
 						//for (int i = 0; i < 3; i++) {
 						//	cout << '\a' << endl; 
 						//	Sleep(500);
@@ -431,6 +524,7 @@ int main()
 					if (blink_cnt > 15)
 					{
 						cout << "检测到闭眼行为，当前闭眼次数：" << eye_close_duration << endl;
+						rgb_light(DevHandle[0], 1);//1次红灯
 					}
 				}
 			}
@@ -449,6 +543,7 @@ int main()
 		cout << e.what() << endl;
 	}
 
-#pragma endregion
-
 }
+
+
+
