@@ -1,8 +1,8 @@
 /*
 * @File_name:  driver_fatigue_detect.cpp
 * @Description: 利用dlib&opencv进行眼口闭开和低头检测，实现疲劳判断
-* @Date:   2021-10-30 16:21:35
-* @Author: @Tongji
+* @Date:   2021-10-30 16:30:35
+* @Author: ESI_SYD@Tongji
 */
 
 #include <dlib\image_processing\frontal_face_detector.h>
@@ -14,6 +14,7 @@
 #include <opencv2\highgui.hpp>
 #include <opencv2\imgproc.hpp>
 #include <opencv2\calib3d.hpp>
+
 
 using namespace std;
 using namespace dlib;
