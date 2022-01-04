@@ -1,7 +1,8 @@
-DEMO:
+Ddmo:
 driver_fatigue_detect
 
-for driver fatigue detection&display warnning on QT GUI.
+for driver fatigue detect and monitor.
 with dlib and opencv library.
-by eye mouth openclose detect and head pose estimation.
-at tongji university.
+
+add beep warnning and LIN_RGB lighting.
+
